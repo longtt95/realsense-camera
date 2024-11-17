@@ -1,29 +1,25 @@
-import pyrealsense2 as rs
+import os
 import cv2
 import numpy as np
+from sklearn.model_selection import train_test_split
+from keras.models import Sequential
+from keras.layers import Dense, Flatten
+from keras.utils import to_categorical
+from keras.models import load_model
+import pyrealsense2 as rs
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk
-from skimage.feature import hog
-from tensorflow.keras.models import load_model
-import matplotlib.pyplot as plt
-
-# Load your pre-trained CNN model
-cnn_model = load_model('train/cnn_model.h5')
 
 # Function to start the camera feed
 def start_camera():
-    # Configure depth and color streams
     pipeline = rs.pipeline()
     config = rs.config()
-
-    # Start streaming
     config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
     config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
     pipeline.start(config)
 
     def update_frame():
-        # Wait for a coherent pair of frames: depth and color
         frames = pipeline.wait_for_frames()
         depth_frame = frames.get_depth_frame()
         color_frame = frames.get_color_frame()
@@ -31,118 +27,167 @@ def start_camera():
             root.after(10, update_frame)
             return
 
-        # Convert images to numpy arrays
         depth_image = np.asanyarray(depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
-
-        # Apply colormap on depth image (image must be converted to 8-bit per pixel first)
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
-
-        # Stack both images horizontally
         images = np.hstack((color_image, depth_colormap))
-
-        # Convert the image to a format suitable for Tkinter
         image = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(image)
         image = ImageTk.PhotoImage(image)
-
-        # Update the image in the label
         camera_label.config(image=image)
         camera_label.image = image
-
-        # Schedule the next frame update
         root.after(10, update_frame)
 
     update_frame()
 
-# Function to execute HOG feature extraction and CNN classification
-def execute():
-    if feature_var.get() == 'HOG' and classification_var.get() == 'CNN':
-        # Load and preprocess the dataset
-        # (Assuming you have a function to load and preprocess your dataset)
-        X_train, y_train, X_test, y_test = load_and_preprocess_dataset()
+# Function to load images and labels from a directory
+def load_dataset(directory, size=(64, 64)):
+    images = []
+    labels = []
+    for label in os.listdir(directory):
+        label_path = os.path.join(directory, label)
+        if os.path.isdir(label_path):
+            for image_name in os.listdir(label_path):
+                image_path = os.path.join(label_path, image_name)
+                image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+                if image is not None:
+                    resized_image = cv2.resize(image, size)
+                    images.append(resized_image)
+                    labels.append(label)
+    return np.array(images), np.array(labels)
 
-        # Train the CNN model
-        history = cnn_model.fit(X_train, y_train, epochs=10, validation_data=(X_test, y_test))
+# Function to extract HOG features
+def extract_hog_features(images, size=(64, 64)):
+    winSize = size
+    blockSize = (16, 16)
+    blockStride = (8, 8)
+    cellSize = (8, 8)
+    nbins = 9
+    hog = cv2.HOGDescriptor(winSize, blockSize, blockStride, cellSize, nbins)
+    hog_features = []
+    for image in images:
+        resized_image = cv2.resize(image, size)
+        hog_feature = hog.compute(resized_image).flatten()
+        hog_features.append(hog_feature)
+    return np.array(hog_features)
 
-        # Plot accuracy and loss graphs
-        plot_accuracy_and_loss(history)
-
-# Function to load and preprocess the dataset
-def load_and_preprocess_dataset():
-    # Implement your dataset loading and preprocessing here
-    # Return X_train, y_train, X_test, y_test
-    pass
-
-# Function to plot accuracy and loss graphs
-def plot_accuracy_and_loss(history):
-    # Plot accuracy
-    plt.figure()
-    plt.plot(history.history['accuracy'], label='train accuracy')
-    plt.plot(history.history['val_accuracy'], label='test accuracy')
-    plt.title('Model Accuracy')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.legend()
-    plt.show()
-
-    # Plot loss
-    plt.figure()
-    plt.plot(history.history['loss'], label='train loss')
-    plt.plot(history.history['val_loss'], label='test loss')
-    plt.title('Model Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.show()
-
-# Function to train the model
+# Function to handle the "Train" button click
 def train_model():
-    # Load and preprocess the dataset
-    X_train, y_train, X_test, y_test = load_and_preprocess_dataset()
+    if feature_var.get() == 'HOG' and classification_var.get() == 'CNN':
+        print("Training model using HOG and CNN...")
 
-    # Train the CNN model
-    history = cnn_model.fit(X_train, y_train, epochs=10, validation_data=(X_test, y_test))
+        train_images, train_labels = load_dataset('TrainData/')
+        label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
+        int_train_labels = np.array([label_to_int[label] for label in train_labels])
+        train_hog_features = extract_hog_features(train_images)
 
-    # Plot accuracy and loss graphs
-    plot_accuracy_and_loss(history)
+        # Print the shape of train_hog_features to debug
+        print(f'Shape of train_hog_features: {train_hog_features.shape}')
 
-# Create the main window
+        X_train, _, y_train, _ = train_test_split(train_hog_features, int_train_labels, test_size=0.2, random_state=42)
+
+        # Print the shape of X_train before reshaping
+        print(f'Shape of X_train before reshaping: {X_train.shape}')
+
+        # Reshape based on the actual feature size
+        feature_size = train_hog_features.shape[1]
+        X_train = X_train.reshape(-1, feature_size)
+
+        y_train = to_categorical(y_train)
+
+        model = Sequential()
+        model.add(Dense(128, activation='relu', input_shape=(feature_size,)))
+        model.add(Dense(64, activation='relu'))
+        model.add(Dense(len(np.unique(train_labels)), activation='softmax'))
+        model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+        model.fit(X_train, y_train, epochs=10, batch_size=32)
+        loss, accuracy = model.evaluate(X_train, y_train)
+        print(f'Train accuracy: {accuracy}')
+
+        # Save the model to the 'TrainData/' directory
+        if not os.path.exists('TrainData'):
+            os.makedirs('TrainData')
+        model.save('TrainData/hog_cnn_model.h5')
+        print("Model saved to 'TrainData/hog_cnn_model.h5'")
+    else:
+        print("Please select HOG for feature extraction and CNN for classification.")
+
+# Function to handle the "Test" button click
+def test_model():
+    print("Testing model...")
+    if feature_var.get() == 'HOG' and classification_var.get() == 'CNN':
+
+        # Capture a single frame from the camera
+        pipeline = rs.pipeline()
+        config = rs.config()
+        config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+        config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+        pipeline.start(config)
+        frames = pipeline.wait_for_frames()
+        color_frame = frames.get_color_frame()
+        pipeline.stop()
+
+        if not color_frame:
+            print("Failed to capture image")
+            return
+
+        color_image = np.asanyarray(color_frame.get_data())
+        gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+        resized_image = cv2.resize(gray_image, (64, 64))
+
+        # Extract HOG features
+        winSize = (64, 64)
+        blockSize = (16, 16)
+        blockStride = (8, 8)
+        cellSize = (8, 8)
+        nbins = 9
+        hog = cv2.HOGDescriptor(winSize, blockSize, blockStride, cellSize, nbins)
+        hog_feature = hog.compute(resized_image).flatten()
+
+        # Load the trained model
+        model = load_model('TrainData/hog_cnn_model.h5')
+
+        # Reshape and predict
+        hog_feature = hog_feature.reshape(1, -1)
+        prediction = model.predict(hog_feature)
+        predicted_label = np.argmax(prediction, axis=1)
+
+        # Map the predicted label back to the original label
+        train_images, train_labels = load_dataset('TrainData/')
+        label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
+        int_to_label = {idx: label for label, idx in label_to_int.items()}
+        predicted_label_name = int_to_label[predicted_label[0]]
+
+        print(f'Predicted label: {predicted_label_name}')
+
 root = tk.Tk()
 root.title("Camera Feed with Dropdowns")
 
-# Create the first dropdown menu
 label1 = tk.Label(root, text="Select Feature Extraction Method:")
 label1.pack()
 feature_var = tk.StringVar()
 feature_dropdown = ttk.Combobox(root, textvariable=feature_var)
 feature_dropdown['values'] = ('HOG', 'Hu', 'Haar')
-feature_dropdown.current(0)  # Set the default value
+feature_dropdown.current(0)
 feature_dropdown.pack()
 
-# Create the second dropdown menu
 label2 = tk.Label(root, text="Select Classification Method:")
 label2.pack()
 classification_var = tk.StringVar()
 classification_dropdown = ttk.Combobox(root, textvariable=classification_var)
 classification_dropdown['values'] = ('SVN', 'CNN')
-classification_dropdown.current(0)  # Set the default value
+classification_dropdown.current(1)
 classification_dropdown.pack()
 
-# Create a label to display the camera feed
 camera_label = tk.Label(root)
 camera_label.pack()
 
-# Create a button to execute some action
-execute_button = tk.Button(root, text="Execute", command=execute)
-execute_button.pack()
+start_camera()
 
-# Create a button to train the model
 train_button = tk.Button(root, text="Train", command=train_model)
 train_button.pack()
 
-# Start the camera feed automatically
-start_camera()
+test_button = tk.Button(root, text="Test", command=test_model)
+test_button.pack()
 
-# Run the GUI event loop
 root.mainloop()
