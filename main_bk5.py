@@ -184,9 +184,6 @@ def test_model():
 
         print(f'Predicted label: {predicted_label_name}')
 
-import os
-import cv2
-import numpy as np
 
 # Function to convert 2D images to 3D
 def convert_to_3d():
@@ -194,6 +191,12 @@ def convert_to_3d():
     output_dir = 'TrainData/3D_G/'
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
+
+    pipeline = rs.pipeline()
+    config = rs.config()
+    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+    pipeline.start(config)
 
     for label in os.listdir(input_dir):
         label_path = os.path.join(input_dir, label)
@@ -205,23 +208,30 @@ def convert_to_3d():
                 image_path = os.path.join(label_path, image_name)
                 color_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
                 if color_image is not None:
-                    # Initialize mask for GrabCut
-                    mask = np.zeros(color_image.shape[:2], np.uint8)
-                    bgd_model = np.zeros((1, 65), np.float64)
-                    fgd_model = np.zeros((1, 65), np.float64)
+                    frames = pipeline.wait_for_frames()
+                    depth_frame = frames.get_depth_frame()
+                    depth_image = np.asanyarray(depth_frame.get_data())
 
-                    # Define a rectangle around the object
-                    rect = (10, 10, color_image.shape[1] - 10, color_image.shape[0] - 10)
+                    # Create a mask using depth information
+                    depth_threshold = 1000  # Adjust this threshold based on your depth range
+                    mask = np.where((depth_image > 0) & (depth_image < depth_threshold), 255, 0).astype(np.uint8)
+                    mask = cv2.resize(mask, (color_image.shape[1], color_image.shape[0]))  # Resize mask to match color image
 
-                    # Apply GrabCut algorithm
-                    cv2.grabCut(color_image, mask, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT)
-                    mask2 = np.where((mask == 2) | (mask == 0), 0, 1).astype('uint8')
-                    color_image = color_image * mask2[:, :, np.newaxis]
+                    # Find contours and create a mask for the largest contour
+                    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    if contours:
+                        largest_contour = max(contours, key=cv2.contourArea)
+                        mask = np.zeros_like(mask)
+                        cv2.drawContours(mask, [largest_contour], -1, 255, thickness=cv2.FILLED)
+
+                    # Apply the mask to the color image
+                    color_image = cv2.bitwise_and(color_image, color_image, mask=mask)
 
                     # Save the 3D image
                     output_image_path = os.path.join(output_label_path, os.path.splitext(image_name)[0] + '.jpg')
                     cv2.imwrite(output_image_path, color_image)
 
+    pipeline.stop()
     print("Conversion to 3D completed.")
 
 root = tk.Tk()
@@ -254,7 +264,6 @@ train_button.pack()
 test_button = tk.Button(root, text="Test", command=test_model)
 test_button.pack()
 
-# Add the "Convert 3D" button to the GUI
 convert_button = tk.Button(root, text="Convert 3D", command=convert_to_3d)
 convert_button.pack()
 
