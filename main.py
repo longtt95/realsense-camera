@@ -6,7 +6,6 @@ from keras.models import Model, load_model
 from keras.layers import Input, Dense, Flatten, Conv2D, MaxPooling2D, Conv3D, MaxPooling3D, Dropout, concatenate
 from keras.utils import to_categorical
 from keras.optimizers import SGD
-from keras.regularizers import l2
 from keras.initializers import VarianceScaling
 import pyrealsense2 as rs
 import tkinter as tk
