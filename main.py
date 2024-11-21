@@ -139,22 +139,13 @@ def train_model():
 def test_model():
     print("Testing model...")
     if feature_var.get() == 'HOG' and classification_var.get() == 'CNN':
-
-        # Capture a single frame from the camera
-        pipeline = rs.pipeline()
-        config = rs.config()
-        config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-        config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-        pipeline.start(config)
-        frames = pipeline.wait_for_frames()
-        color_frame = frames.get_color_frame()
-        pipeline.stop()
-
-        if not color_frame:
-            print("Failed to capture image")
+        # Load the test image
+        image_path = 'TestData/1.jpg'
+        color_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        if color_image is None:
+            print("Failed to load image")
             return
 
-        color_image = np.asanyarray(color_frame.get_data())
         gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         resized_image = cv2.resize(gray_image, (64, 64))
 
@@ -168,7 +159,7 @@ def test_model():
         hog_feature = hog.compute(resized_image).flatten()
 
         # Load the trained model
-        model = load_model('TrainData/combined_model.h5')
+        model = load_model('TrainData/hog_cnn_model.h5')
 
         # Reshape and predict
         hog_feature = hog_feature.reshape(1, -1)
@@ -176,16 +167,12 @@ def test_model():
         predicted_label = np.argmax(prediction, axis=1)
 
         # Map the predicted label back to the original label
-        train_images, train_labels = load_2d_dataset('TrainData2D/')
+        train_images, train_labels = load_2d_dataset('TrainData/2D/')
         label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
         int_to_label = {idx: label for label, idx in label_to_int.items()}
         predicted_label_name = int_to_label[predicted_label[0]]
 
         print(f'Predicted label: {predicted_label_name}')
-
-import os
-import cv2
-import numpy as np
 
 # Function to convert 2D images to 3D
 def convert_to_3d():
