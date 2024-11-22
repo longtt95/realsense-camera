@@ -11,6 +11,7 @@ import pyrealsense2 as rs
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk
+from tkinter import filedialog
 
 # Function to start the camera feed
 def start_camera():
@@ -136,16 +137,43 @@ def train_model():
     print("Model saved to 'TrainData/combined_model.h5'")
 
 # Function to handle the "Test" button click
+
+# Function to handle the "Test" button click
 def test_model():
     print("Testing model...")
     if feature_var.get() == 'HOG' and classification_var.get() == 'CNN':
+        # Open file dialog to select an image
+        file_path = filedialog.askopenfilename(title="Select an image", filetypes=[("Image files", "*.jpg;*.jpeg;*.png")])
+        if not file_path:
+            print("No file selected")
+            return
+
+        # Copy the selected image to the TestData folder
+        if not os.path.exists('TestData'):
+            os.makedirs('TestData')
+        test_image_path = os.path.join('TestData', '1.jpg')
+        cv2.imwrite(test_image_path, cv2.imread(file_path))
+
         # Load the test image
-        image_path = 'TestData/1.jpg'
-        color_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        color_image = cv2.imread(test_image_path, cv2.IMREAD_COLOR)
         if color_image is None:
             print("Failed to load image")
             return
 
+        # Resize the image to 100px width while maintaining aspect ratio
+        height, width = color_image.shape[:2]
+        new_width = 100
+        new_height = int((new_width / width) * height)
+        resized_color_image = cv2.resize(color_image, (new_width, new_height))
+
+        # Display the image in the GUI
+        image = cv2.cvtColor(resized_color_image, cv2.COLOR_BGR2RGB)
+        image = Image.fromarray(image)
+        image = ImageTk.PhotoImage(image)
+        uploaded_image_label.config(image=image)
+        uploaded_image_label.image = image
+
+        # Convert the image to grayscale and resize
         gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         resized_image = cv2.resize(gray_image, (64, 64))
 
@@ -173,6 +201,9 @@ def test_model():
         predicted_label_name = int_to_label[predicted_label[0]]
 
         print(f'Predicted label: {predicted_label_name}')
+
+        # Display the predicted label in the GUI
+        label_result.config(text=f'Dự đoán: {predicted_label_name}')
 
 # Function to convert 2D images to 3D
 def convert_to_3d():
@@ -243,5 +274,13 @@ test_button.pack()
 # Add the "Convert 3D" button to the GUI
 convert_button = tk.Button(root, text="Convert 3D", command=convert_to_3d)
 convert_button.pack()
+
+# Add a label to display the uploaded image
+uploaded_image_label = tk.Label(root)
+uploaded_image_label.pack()
+
+# Add a label to display the prediction result
+label_result = tk.Label(root, text="")
+label_result.pack()
 
 root.mainloop()
