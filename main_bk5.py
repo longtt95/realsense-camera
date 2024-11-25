@@ -133,8 +133,8 @@ def train_model():
     # Save the model to the 'TrainData/' directory
     if not os.path.exists('TrainData'):
         os.makedirs('TrainData')
-    model.save('TrainData/combined_model.h5')
-    print("Model saved to 'TrainData/combined_model.h5'")
+    model.save('TrainData/hog_cnn_model.h5')
+    print("Model saved to 'TrainData/hog_cnn_model.h5'")
 
 # Function to handle the "Test" button click
 def test_model():
@@ -169,7 +169,7 @@ def test_model():
         hog_feature = hog.compute(resized_image).flatten()
 
         # Load the trained model
-        model = load_model('TrainData/combined_model.h5')
+        model = load_model('TrainData/hog_cnn_model.h5')
 
         # Reshape and predict
         hog_feature = hog_feature.reshape(1, -1)
