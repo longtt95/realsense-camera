@@ -14,11 +14,15 @@ from PIL import Image, ImageTk
 from tkinter import filedialog
 from sklearn import svm
 import joblib
+from keras.callbacks import EarlyStopping
+from keras.layers import BatchNormalization
+from keras.regularizers import l2
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+import tensorflow as tf
 
 # Global variables to store frames
 color_image_global = None
 depth_image_global = None
-
 
 # Function to start the camera feed
 def start_camera():
@@ -141,8 +145,7 @@ def construct_combined_model_hog_cnn(input_shape_2d, input_shape_3d, num_classes
 
     # 3D branch
     input_3d = Input(shape=input_shape_3d)
-    x3d = Conv3D(32, (3, 3, 3), activation='relu', padding='valid', kernel_initializer=VarianceScaling(scale=2.0))(
-        input_3d)
+    x3d = Conv3D(32, (3, 3, 3), activation='relu', padding='valid', kernel_initializer=VarianceScaling(scale=2.0))(input_3d)
     x3d = MaxPooling3D(pool_size=(2, 2, 2))(x3d)
     x3d = Conv3D(64, (3, 3, 3), activation='relu', padding='valid', kernel_initializer=VarianceScaling(scale=2.0))(x3d)
     x3d = MaxPooling3D(pool_size=(2, 2, 2))(x3d)
@@ -157,7 +160,7 @@ def construct_combined_model_hog_cnn(input_shape_2d, input_shape_3d, num_classes
     output = Dense(num_classes, activation='softmax')(combined)
 
     model = Model(inputs=[input_2d, input_3d], outputs=output)
-    sgd = SGD(learning_rate=0.005, decay=1e-6, momentum=0.95, nesterov=True)
+    sgd = SGD(learning_rate=0.005, decay=1e-6, momentum=0.95, nesterov=True, clipvalue=1.0)
     model.compile(loss='categorical_crossentropy', optimizer=sgd, metrics=['accuracy'])
     return model
 
@@ -187,33 +190,38 @@ def construct_combined_model_hu_cnn(input_shape_2d, input_shape_3d, num_classes)
 def construct_combined_model_haar_cnn(input_shape_2d, input_shape_3d, num_classes):
     # 2D branch for Haar features
     input_2d = Input(shape=input_shape_2d)
-    x2d = Conv2D(32, (3, 3), activation='relu', padding='same', kernel_initializer=VarianceScaling(scale=2.0))(input_2d)
+    x2d = Conv2D(32, (3, 3), activation='relu', padding='same', kernel_initializer=VarianceScaling(scale=2.0), kernel_regularizer=l2(0.01))(input_2d)
+    x2d = BatchNormalization()(x2d)
     x2d = MaxPooling2D(pool_size=(2, 2))(x2d)
-    x2d = Conv2D(64, (3, 3), activation='relu', padding='same', kernel_initializer=VarianceScaling(scale=2.0))(x2d)
+    x2d = Dropout(0.25)(x2d)
+    x2d = Conv2D(64, (3, 3), activation='relu', padding='same', kernel_initializer=VarianceScaling(scale=2.0), kernel_regularizer=l2(0.01))(x2d)
+    x2d = BatchNormalization()(x2d)
     x2d = MaxPooling2D(pool_size=(2, 2))(x2d)
+    x2d = Dropout(0.25)(x2d)
     x2d = Flatten()(x2d)
 
     # 3D branch for Haar features
     input_3d = Input(shape=input_shape_3d)
-    x3d = Conv3D(32, (3, 3, 3), activation='relu', padding='same', kernel_initializer=VarianceScaling(scale=2.0))(input_3d)
+    x3d = Conv3D(32, (3, 3, 3), activation='relu', padding='same', kernel_initializer=VarianceScaling(scale=2.0), kernel_regularizer=l2(0.01))(input_3d)
+    x3d = BatchNormalization()(x3d)
     x3d = MaxPooling3D(pool_size=(2, 2, 2))(x3d)
-    x3d = Conv3D(64, (3, 3, 3), activation='relu', padding='same', kernel_initializer=VarianceScaling(scale=2.0))(x3d)
+    x3d = Dropout(0.25)(x3d)
+    x3d = Conv3D(64, (3, 3, 3), activation='relu', padding='same', kernel_initializer=VarianceScaling(scale=2.0), kernel_regularizer=l2(0.01))(x3d)
+    x3d = BatchNormalization()(x3d)
     x3d = MaxPooling3D(pool_size=(2, 2, 2))(x3d)
+    x3d = Dropout(0.25)(x3d)
     x3d = Flatten()(x3d)
 
     # Concatenate the outputs of the two branches
     combined = concatenate([x2d, x3d])
-    combined = Dense(4096, activation='relu')(combined)
-    combined = Dropout(0.5)(combined)
-    combined = Dense(4096, activation='relu')(combined)
+    combined = Dense(512, activation='relu', kernel_regularizer=l2(0.01))(combined)
     combined = Dropout(0.5)(combined)
     output = Dense(num_classes, activation='softmax')(combined)
 
     model = Model(inputs=[input_2d, input_3d], outputs=output)
-    sgd = SGD(learning_rate=0.005, decay=1e-6, momentum=0.95, nesterov=True)
+    sgd = SGD(learning_rate=0.001, decay=1e-6, momentum=0.9, nesterov=True, clipvalue=1.0)
     model.compile(loss='categorical_crossentropy', optimizer=sgd, metrics=['accuracy'])
     return model
-
 
 # Function to handle the "Train" button click
 def train_model():
@@ -234,8 +242,7 @@ def train_model():
 
         label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
         int_train_labels = np.array([label_to_int[label] for label in train_labels])
-        X_train_2d, X_val_2d, y_train, y_val = train_test_split(train_images_2d, int_train_labels, test_size=0.2,
-                                                                random_state=42)
+        X_train_2d, X_val_2d, y_train, y_val = train_test_split(train_images_2d, int_train_labels, test_size=0.2, random_state=42)
         X_train_3d, X_val_3d, _, _ = train_test_split(train_images_3d, int_train_labels, test_size=0.2, random_state=42)
         y_train = to_categorical(y_train, num_classes=len(label_to_int))
         y_val = to_categorical(y_val, num_classes=len(label_to_int))
@@ -245,14 +252,22 @@ def train_model():
         X_train_hog_2d = np.array([hog.compute(cv2.resize(img, (64, 64))).flatten() for img in X_train_2d])
         X_val_hog_2d = np.array([hog.compute(cv2.resize(img, (64, 64))).flatten() for img in X_val_2d])
 
+        # Normalize HOG features
+        X_train_hog_2d = X_train_hog_2d / np.linalg.norm(X_train_hog_2d, axis=1, keepdims=True)
+        X_val_hog_2d = X_val_hog_2d / np.linalg.norm(X_val_hog_2d, axis=1, keepdims=True)
+
+        # Check for NaN values in the dataset
+        if np.isnan(X_train_hog_2d).any() or np.isnan(X_val_hog_2d).any():
+            print("NaN values found in the dataset. Please check the data preprocessing steps.")
+            return
+
         # Reshape the 3D images to match the expected input structure
         X_train_3d = X_train_3d.reshape(-1, 64, 64, 64, 1)
         X_val_3d = X_val_3d.reshape(-1, 64, 64, 64, 1)
 
         # Construct and train the model
         model = construct_combined_model_hog_cnn((1764,), (64, 64, 64, 1), len(label_to_int))
-        model.fit([X_train_hog_2d, X_train_3d], y_train, validation_data=([X_val_hog_2d, X_val_3d], y_val), epochs=10,
-                  batch_size=64)
+        model.fit([X_train_hog_2d, X_train_3d], y_train, validation_data=([X_val_hog_2d, X_val_3d], y_val), epochs=16, batch_size=64)
         model.save('TrainData/hog_cnn_model.keras')
         print("Model saved to 'TrainData/hog_cnn_model.keras'")
 
@@ -314,10 +329,9 @@ def train_model():
         print("Model saved to 'TrainData/hu_svm_model.pkl'")
 
     elif feature == 'Haar' and classification == 'CNN':
-        train_images_2d, train_labels = load_2d_dataset('TrainData/2D/', size=(65, 65))
-        train_images_3d, _ = load_3d_dataset('TrainData/3D/', size=(65, 65, 65))
+        train_images_2d, train_labels = load_2d_dataset('TrainData/2D/')
+        train_images_3d, _ = load_3d_dataset('TrainData/3D/')
 
-        # Ensure the number of 2D and 3D images are the same
         min_samples = min(len(train_images_2d), len(train_images_3d))
         train_images_2d = train_images_2d[:min_samples]
         train_images_3d = train_images_3d[:min_samples]
@@ -329,38 +343,64 @@ def train_model():
         X_train_2d, X_val_2d, y_train, y_val = train_test_split(train_images_2d, int_train_labels, test_size=0.2, random_state=42)
         X_train_3d, X_val_3d, _, _ = train_test_split(train_images_3d, int_train_labels, test_size=0.2, random_state=42)
 
+        X_train_2d = X_train_2d.reshape(-1, 64, 64, 1)
+        X_val_2d = X_val_2d.reshape(-1, 64, 64, 1)
+
+        datagen = ImageDataGenerator(
+            rotation_range=20,
+            width_shift_range=0.2,
+            height_shift_range=0.2,
+            horizontal_flip=True
+        )
+        datagen.fit(X_train_2d)
+
         X_train_haar_2d = np.array([cv2.integral(img) for img in X_train_2d])
         X_val_haar_2d = np.array([cv2.integral(img) for img in X_val_2d])
-        X_train_haar_3d = np.array([cv2.integral(img[:, :, 0]) for img in X_train_3d])
-        X_val_haar_3d = np.array([cv2.integral(img[:, :, 0]) for img in X_val_3d])
 
-        # Add a channel dimension to the 2D Haar features
-        X_train_haar_2d = X_train_haar_2d[..., np.newaxis]
-        X_val_haar_2d = X_val_haar_2d[..., np.newaxis]
+        epsilon = 1e-10
+        X_train_haar_2d = X_train_haar_2d / (np.linalg.norm(X_train_haar_2d, axis=1, keepdims=True) + epsilon)
+        X_val_haar_2d = X_val_haar_2d / (np.linalg.norm(X_val_haar_2d, axis=1, keepdims=True) + epsilon)
 
-        # Add a depth dimension and a channel dimension to the 3D Haar features
-        X_train_haar_3d = X_train_haar_3d[:, np.newaxis, ..., np.newaxis]
-        X_val_haar_3d = X_val_haar_3d[:, np.newaxis, ..., np.newaxis]
-
-        # Ensure the depth dimension is at least 3
-        if X_train_haar_3d.shape[1] < 3:
-            X_train_haar_3d = np.pad(X_train_haar_3d, ((0, 0), (0, 3 - X_train_haar_3d.shape[1]), (0, 0), (0, 0), (0, 0)), mode='constant')
-            X_val_haar_3d = np.pad(X_val_haar_3d, ((0, 0), (0, 3 - X_val_haar_3d.shape[1]), (0, 0), (0, 0), (0, 0)), mode='constant')
+        if np.isnan(X_train_haar_2d).any() or np.isnan(X_val_haar_2d).any():
+            print("NaN values found in the dataset. Please check the data preprocessing steps.")
+            return
 
         y_train = to_categorical(y_train, num_classes=len(label_to_int))
         y_val = to_categorical(y_val, num_classes=len(label_to_int))
 
-        model = construct_combined_model_haar_cnn((65, 65, 1), (3, 65, 65, 1), len(np.unique(train_labels)))
-        model.fit([X_train_haar_2d, X_train_haar_3d], y_train, validation_data=([X_val_haar_2d, X_val_haar_3d], y_val), epochs=10, batch_size=64)
-        model.save('TrainData/haar_cnn_model.h5')
-        print("Model saved to 'TrainData/haar_cnn_model.h5'")
+        X_train_haar_2d = X_train_haar_2d.reshape(-1, 65, 65, 1)
+        X_val_haar_2d = X_val_haar_2d.reshape(-1, 65, 65, 1)
+
+        X_train_3d = X_train_3d.reshape(-1, 64, 64, 64, 1)
+        X_val_3d = X_val_3d.reshape(-1, 64, 64, 64, 1)
+
+        model = construct_combined_model_haar_cnn((65, 65, 1), (64, 64, 64, 1), len(label_to_int))
+
+        early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+
+        # Create TensorFlow datasets
+        train_dataset = tf.data.Dataset.from_tensor_slices(((X_train_haar_2d, X_train_3d), y_train))
+        val_dataset = tf.data.Dataset.from_tensor_slices(((X_val_haar_2d, X_val_3d), y_val))
+
+        # Shuffle and batch the datasets
+        train_dataset = train_dataset.shuffle(buffer_size=len(X_train_haar_2d)).batch(64)
+        val_dataset = val_dataset.batch(64)
+
+        model.fit(train_dataset,
+                  validation_data=val_dataset,
+                  epochs=10, callbacks=[early_stopping])
+        model.save('TrainData/haar_cnn_model.keras')
+        print("Model saved to 'TrainData/haar_cnn_model.keras'")
 
     elif feature == 'Haar' and classification == 'SVM':
         train_images_2d, train_labels = load_2d_dataset('TrainData/2D/')
         label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
         int_train_labels = np.array([label_to_int[label] for label in train_labels])
         X_train_2d, _, y_train, _ = train_test_split(train_images_2d, int_train_labels, test_size=0.2, random_state=42)
-        X_train_haar_2d = [cv2.integral(img) for img in X_train_2d]
+
+        # Extract Haar features for 2D images and flatten them
+        X_train_haar_2d = [cv2.integral(img).flatten() for img in X_train_2d]
+
         svm_model = svm.SVC(kernel='linear', probability=True)
         svm_model.fit(X_train_haar_2d, y_train)
         joblib.dump(svm_model, 'TrainData/haar_svm_model.pkl')
@@ -399,7 +439,6 @@ def train_model():
     #     joblib.dump(svm_model, 'TrainData/hog_svm_model.pkl')
     #     print("Model saved to 'TrainData/hog_svm_model.pkl'")
 
-
 def test_model():
     print("Testing model...")
     feature = feature_var.get()
@@ -432,7 +471,7 @@ def test_model():
             label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
             int_to_label = {idx: label for label, idx in label_to_int.items()}
             predicted_label_name = int_to_label[predicted_label[0]]
-        print(f'Predicted label: {predicted_label_name}')
+        print(f'Predicted label: {predicted_label_name}, Accuracy: {accuracy:.2f}%')
         label_result.config(text=f'Dự đoán: {predicted_label_name}')
 
     elif feature == 'HOG' and classification == 'SVM':
@@ -450,13 +489,17 @@ def test_model():
         hog = cv2.HOGDescriptor((64, 64), (16, 16), (8, 8), (8, 8), 9)
         hog_feature = hog.compute(resized_image).flatten()
         svm_model = joblib.load('TrainData/hog_svm_model.pkl')
-        prediction = svm_model.predict([hog_feature])
-        predicted_label = prediction[0]
-        train_images, train_labels = load_2d_dataset('TrainData/2D/')
-        label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
-        int_to_label = {idx: label for label, idx in label_to_int.items()}
-        predicted_label_name = int_to_label[predicted_label]
-        print(f'Predicted label: {predicted_label_name}')
+        prediction = svm_model.predict_proba([hog_feature])
+        predicted_label = np.argmax(prediction, axis=1)
+        accuracy = np.max(prediction) * 100
+        if accuracy < 70:
+            predicted_label_name = "Unknown"
+        else:
+            train_images, train_labels = load_2d_dataset('TrainData/2D/')
+            label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
+            int_to_label = {idx: label for label, idx in label_to_int.items()}
+            predicted_label_name = int_to_label[predicted_label[0]]
+        print(f'Predicted label: {predicted_label_name}, Accuracy: {accuracy:.2f}%')
         label_result.config(text=f'Dự đoán: {predicted_label_name}')
 
     elif feature == 'Hu' and classification == 'CNN':
@@ -476,11 +519,15 @@ def test_model():
         hu_moments = hu_moments.reshape(1, 7)
         prediction = model.predict([hu_moments, hu_moments])
         predicted_label = np.argmax(prediction, axis=1)
-        train_images, train_labels = load_2d_dataset('TrainData/2D/')
-        label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
-        int_to_label = {idx: label for label, idx in label_to_int.items()}
-        predicted_label_name = int_to_label[predicted_label[0]]
-        print(f'Predicted label: {predicted_label_name}')
+        accuracy = np.max(prediction) * 100
+        if accuracy < 70:
+            predicted_label_name = "Unknown"
+        else:
+            train_images, train_labels = load_2d_dataset('TrainData/2D/')
+            label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
+            int_to_label = {idx: label for label, idx in label_to_int.items()}
+            predicted_label_name = int_to_label[predicted_label[0]]
+        print(f'Predicted label: {predicted_label_name}, Accuracy: {accuracy:.2f}%')
         label_result.config(text=f'Dự đoán: {predicted_label_name}')
 
     elif feature == 'Hu' and classification == 'SVM':
@@ -497,13 +544,17 @@ def test_model():
         resized_image = cv2.resize(gray_image, (64, 64))
         hu_moments = cv2.HuMoments(cv2.moments(resized_image)).flatten()
         svm_model = joblib.load('TrainData/hu_svm_model.pkl')
-        prediction = svm_model.predict([hu_moments])
-        predicted_label = prediction[0]
-        train_images, train_labels = load_2d_dataset('TrainData/2D/')
-        label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
-        int_to_label = {idx: label for label, idx in label_to_int.items()}
-        predicted_label_name = int_to_label[predicted_label]
-        print(f'Predicted label: {predicted_label_name}')
+        prediction = svm_model.predict_proba([hu_moments])
+        predicted_label = np.argmax(prediction, axis=1)
+        accuracy = np.max(prediction) * 100
+        if accuracy < 70:
+            predicted_label_name = "Unknown"
+        else:
+            train_images, train_labels = load_2d_dataset('TrainData/2D/')
+            label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
+            int_to_label = {idx: label for label, idx in label_to_int.items()}
+            predicted_label_name = int_to_label[predicted_label[0]]
+        print(f'Predicted label: {predicted_label_name}, Accuracy: {accuracy:.2f}%')
         label_result.config(text=f'Dự đoán: {predicted_label_name}')
 
     elif feature == 'Haar' and classification == 'CNN':
@@ -519,16 +570,20 @@ def test_model():
         gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         resized_image = cv2.resize(gray_image, (64, 64))
         haar_feature = cv2.integral(resized_image)
-        model = load_model('TrainData/haar_cnn_model.h5')
-        haar_feature = haar_feature.reshape(1, 65, 65)
-        dummy_3d_input = np.zeros((1, 65, 65))
+        haar_feature = haar_feature.reshape(1, 65, 65, 1)  # Correctly reshape Haar features
+        dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
+        model = load_model('TrainData/haar_cnn_model.keras')
         prediction = model.predict([haar_feature, dummy_3d_input])
         predicted_label = np.argmax(prediction, axis=1)
-        train_images, train_labels = load_2d_dataset('TrainData/2D/')
-        label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
-        int_to_label = {idx: label for label, idx in label_to_int.items()}
-        predicted_label_name = int_to_label[predicted_label[0]]
-        print(f'Predicted label: {predicted_label_name}')
+        accuracy = np.max(prediction) * 100
+        if accuracy < 70:
+            predicted_label_name = "Unknown"
+        else:
+            train_images, train_labels = load_2d_dataset('TrainData/2D/')
+            label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
+            int_to_label = {idx: label for label, idx in label_to_int.items()}
+            predicted_label_name = int_to_label[predicted_label[0]]
+        print(f'Predicted label: {predicted_label_name}, Accuracy: {accuracy:.2f}%')
         label_result.config(text=f'Dự đoán: {predicted_label_name}')
 
     elif feature == 'Haar' and classification == 'SVM':
@@ -543,15 +598,19 @@ def test_model():
             return
         gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         resized_image = cv2.resize(gray_image, (64, 64))
-        haar_feature = cv2.integral(resized_image)
+        haar_feature = cv2.integral(resized_image).flatten()  # Flatten the Haar features
         svm_model = joblib.load('TrainData/haar_svm_model.pkl')
-        prediction = svm_model.predict([haar_feature])
-        predicted_label = prediction[0]
-        train_images, train_labels = load_2d_dataset('TrainData/2D/')
-        label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
-        int_to_label = {idx: label for label, idx in label_to_int.items()}
-        predicted_label_name = int_to_label[predicted_label]
-        print(f'Predicted label: {predicted_label_name}')
+        prediction = svm_model.predict_proba([haar_feature])
+        predicted_label = np.argmax(prediction, axis=1)
+        accuracy = np.max(prediction) * 100
+        if accuracy < 70:
+            predicted_label_name = "Unknown"
+        else:
+            train_images, train_labels = load_2d_dataset('TrainData/2D/')
+            label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
+            int_to_label = {idx: label for label, idx in label_to_int.items()}
+            predicted_label_name = int_to_label[predicted_label[0]]
+        print(f'Predicted label: {predicted_label_name}, Accuracy: {accuracy:.2f}%')
         label_result.config(text=f'Dự đoán: {predicted_label_name}')
 
     # Resize the image to 100px width while maintaining aspect ratio
