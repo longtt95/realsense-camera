@@ -20,12 +20,9 @@ from keras.layers import BatchNormalization
 from keras.regularizers import l2
 import tkinter.font as tkFont
 from sklearn.svm import SVC
-
-import re
 # Global variables to store frames
 color_image_global = None
 depth_image_global = None
-model_file_path = None
 
 # Function to start the camera feed
 def start_camera():
@@ -70,7 +67,6 @@ def start_camera():
     update_frame()
 
 def load_model_file():
-    global model_file_path
     file_path = filedialog.askopenfilename(title="Select a model file",
                                            filetypes=[("Model files", "*.h5;*.keras;*.pkl")])
     if not file_path:
@@ -85,101 +81,20 @@ def load_model_file():
         return
 
     feature, classification, file_type = match.groups()
-    feature_dropdown.set(feature.upper())
-    classification_dropdown.set(classification.upper())
+    feature_dropdown.set(feature)
+    classification_dropdown.set(classification)
 
-    # Store the model file path
-    model_file_path = file_path
-    status_label.config(text=f"Model {filename} đã được nạp.")
-
-def test_loaded_model():
-    global model_file_path
-    if not model_file_path:
-        status_label.config(text="No model loaded")
-        return
-
-    print("Testing loaded model...")
-    status_label.config(text="Đang dự đoán. Vui lòng đợi...")
-    root.update_idletasks()
-
-    file_path = filedialog.askopenfilename(title="Select an image",
-                                           filetypes=[("Image files", "*.jpg;*.jpeg;*.png")])
-    if not file_path:
-        print("No file selected")
-        return
-
-    color_image = cv2.imread(file_path, cv2.IMREAD_COLOR)
-    if color_image is None:
-        print("Failed to load image")
-        return
-
-    gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-    resized_image = cv2.resize(gray_image, (64, 64))
-
-    feature = feature_var.get()
-    classification = classification_var.get()
-
-    if classification == 'CNN':
-        model = load_model(model_file_path)
-        resized_image = resized_image.reshape(1, 64, 64, 1)
-        dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
-        prediction = model.predict([resized_image, dummy_3d_input])
-    elif feature == 'HOG' and classification == 'SVM':
-        hog = cv2.HOGDescriptor((64, 64), (16, 16), (8, 8), (8, 8), 9)
-        hog_feature = hog.compute(resized_image).flatten()
-        model = joblib.load(model_file_path)
-        prediction = model.predict_proba([hog_feature])
-    elif feature == 'Hu' and classification == 'SVM':
-        hu_feature = extract_hu_moments(color_image)
-        model = joblib.load(model_file_path)
-        prediction = model.predict_proba([hu_feature])
-    elif feature == 'Haar' and classification == 'SVM':
-        haar_feature = cv2.integral(resized_image).flatten()
-        model = joblib.load(model_file_path)
-        prediction = model.predict_proba([haar_feature])
-    elif feature == 'HOG' and classification == 'NN':
-        hog = cv2.HOGDescriptor((64, 64), (16, 16), (8, 8), (8, 8), 9)
-        hog_feature = hog.compute(resized_image).flatten()
-        model = load_model(model_file_path)
-        dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
-        prediction = model.predict([np.array([hog_feature]), dummy_3d_input])
-    elif feature == 'Hu' and classification == 'NN':
-        hu_moments = extract_hu_moments(color_image)
-        model = load_model(model_file_path)
-        dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
-        prediction = model.predict([np.array([hu_moments]), dummy_3d_input])
-    elif feature == 'Haar' and classification == 'NN':
-        haar_feature = cv2.integral(resized_image).flatten()
-        model = load_model(model_file_path)
-        dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
-        prediction = model.predict([np.array([haar_feature]), dummy_3d_input])
+    # Load the model based on the file type
+    if file_type in ['h5', 'keras']:
+        model = load_model(file_path)
+    elif file_type == 'pkl':
+        model = joblib.load(file_path)
     else:
         status_label.config(text="Chưa có thuật toán, chương trình sẽ cập nhật sau")
         return
 
-    predicted_label = np.argmax(prediction, axis=1)
-    accuracy = np.max(prediction) * 100
-    train_images, train_labels = load_2d_dataset('TrainData/2D/')
-    label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
-    int_to_label = {idx: label for label, idx in label_to_int.items()}
-    predicted_label_name = int_to_label[predicted_label[0]]
-    print(f'Predicted label: {predicted_label_name}, Accuracy: {accuracy:.2f}%')
-    label_result.config(text=f'Dự đoán: {predicted_label_name}')
-
-    # Resize the image to 100px width while maintaining aspect ratio
-    height, width = color_image.shape[:2]
-    new_width = 100
-    new_height = int((new_width / width) * height)
-    resized_color_image = cv2.resize(color_image, (new_width, new_height))
-
-    # Display the image in the GUI
-    image = cv2.cvtColor(resized_color_image, cv2.COLOR_BGR2RGB)
-    image = Image.fromarray(image)
-    image = ImageTk.PhotoImage(image)
-    uploaded_image_label.config(image=image)
-    uploaded_image_label.image = image
-    status_label.config(text="")
-
+    status_label.config(text=f"Model {filename} loaded successfully")
+    return model
 
 # Function to load 2D images and labels from a directory
 def load_2d_dataset(directory, size=(64, 64)):
@@ -410,8 +325,8 @@ def train_model():
         # Construct and train the model
         model = construct_cnn_model((64, 64, 1), (64, 64, 64, 1), len(label_to_int))
         model.fit([X_train_2d, X_train_3d], y_train, validation_data=([X_val_2d, X_val_3d], y_val), epochs=5, batch_size=64)
-        model.save('TrainData/cnn_cnn_model.keras')
-        print("Model saved to 'TrainData/cnn_cnn_model.keras'")
+        model.save('TrainData/cnn_model.keras')
+        print("Model saved to 'TrainData/cnn_model.keras'")
 
     elif feature == 'HOG' and classification == 'SVM':
         # Load 2D dataset
@@ -636,7 +551,7 @@ def test_model():
     resized_image = cv2.resize(gray_image, (64, 64))
 
     if classification == 'CNN':
-        model_path = 'TrainData/cnn_cnn_model.keras'
+        model_path = 'TrainData/cnn_model.keras'
         if not os.path.exists(model_path):
             print(f"Model file {model_path} not found")
             return
@@ -744,81 +659,6 @@ def test_model():
     uploaded_image_label.image = image
     status_label.config(text="")
 
-# def test_loaded_model(model):
-#     print("Testing loaded model...")
-#     status_label.config(text="Đang dự đoán. Vui lòng đợi...")
-#     root.update_idletasks()
-#
-#     file_path = filedialog.askopenfilename(title="Select an image",
-#                                            filetypes=[("Image files", "*.jpg;*.jpeg;*.png")])
-#     if not file_path:
-#         print("No file selected")
-#         return
-#
-#     color_image = cv2.imread(file_path, cv2.IMREAD_COLOR)
-#     if color_image is None:
-#         print("Failed to load image")
-#         return
-#
-#     gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-#     resized_image = cv2.resize(gray_image, (64, 64))
-#
-#     feature = feature_var.get()
-#     classification = classification_var.get()
-#
-#     if classification == 'CNN':
-#         resized_image = resized_image.reshape(1, 64, 64, 1)
-#         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
-#         prediction = model.predict([resized_image, dummy_3d_input])
-#     elif feature == 'HOG' and classification == 'SVM':
-#         hog = cv2.HOGDescriptor((64, 64), (16, 16), (8, 8), (8, 8), 9)
-#         hog_feature = hog.compute(resized_image).flatten()
-#         prediction = model.predict_proba([hog_feature])
-#     elif feature == 'Hu' and classification == 'SVM':
-#         hu_feature = extract_hu_moments(color_image)
-#         prediction = model.predict_proba([hu_feature])
-#     elif feature == 'Haar' and classification == 'SVM':
-#         haar_feature = cv2.integral(resized_image).flatten()
-#         prediction = model.predict_proba([haar_feature])
-#     elif feature == 'HOG' and classification == 'NN':
-#         hog = cv2.HOGDescriptor((64, 64), (16, 16), (8, 8), (8, 8), 9)
-#         hog_feature = hog.compute(resized_image).flatten()
-#         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
-#         prediction = model.predict([np.array([hog_feature]), dummy_3d_input])
-#     elif feature == 'Hu' and classification == 'NN':
-#         hu_moments = extract_hu_moments(color_image)
-#         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
-#         prediction = model.predict([np.array([hu_moments]), dummy_3d_input])
-#     elif feature == 'Haar' and classification == 'NN':
-#         haar_feature = cv2.integral(resized_image).flatten()
-#         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
-#         prediction = model.predict([np.array([haar_feature]), dummy_3d_input])
-#     else:
-#         status_label.config(text="Chưa có thuật toán, chương trình sẽ cập nhật sau")
-#         return
-#
-#     predicted_label = np.argmax(prediction, axis=1)
-#     accuracy = np.max(prediction) * 100
-#     train_images, train_labels = load_2d_dataset('TrainData/2D/')
-#     label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
-#     int_to_label = {idx: label for label, idx in label_to_int.items()}
-#     predicted_label_name = int_to_label[predicted_label[0]]
-#     print(f'Predicted label: {predicted_label_name}, Accuracy: {accuracy:.2f}%')
-#     label_result.config(text=f'Dự đoán: {predicted_label_name}')
-#
-#     # Resize the image to 100px width while maintaining aspect ratio
-#     height, width = color_image.shape[:2]
-#     new_width = 100
-#     new_height = int((new_width / width) * height)
-#     resized_color_image = cv2.resize(color_image, (new_width, new_height))
-#
-#     # Display the image in the GUI
-#     image = cv2.cvtColor(resized_color_image, cv2.COLOR_BGR2RGB)
-#     image = Image.fromarray(image)
-#     image = ImageTk.PhotoImage(image)
-#     uploaded_image_label.config(image=image)
-#     uploaded_image_label.image = image
-#     status_label.config(text="")
 
 # Function to load a 3D image from the TrainData/3D/ directory
 def load_3d_image(file_path, size=(64, 64, 64)):
@@ -985,14 +825,6 @@ train_button.pack(side=tk.LEFT, padx=5, pady=5)
 # Add a test button to the frame
 test_button = tk.Button(frame, text="Test", command=test_model, font=font)
 test_button.pack(side=tk.LEFT, padx=5, pady=5)
-
-# Add the "Nạp mô hình" button to the frame
-load_model_button = tk.Button(frame, text="Nạp mô hình", command=load_model_file, font=font)
-load_model_button.pack(side=tk.LEFT, padx=5, pady=5)
-
-# Add the "Test mô hình" button to the frame
-load_model_button = tk.Button(frame, text="Test mô hình", command=test_loaded_model, font=font)
-load_model_button.pack(side=tk.LEFT, padx=5, pady=5)
 
 # Add the status label below the frame
 status_font = tkFont.Font(size=14, weight="bold", slant="italic")
