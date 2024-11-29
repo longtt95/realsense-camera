@@ -114,7 +114,9 @@ def test_loaded_model():
         return
 
     gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-    resized_image = cv2.resize(gray_image, (64, 64))
+    denoised_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
+    equalized_image = cv2.equalizeHist(denoised_image)
+    resized_image = cv2.resize(equalized_image, (64, 64))
 
     feature = feature_var.get()
     classification = classification_var.get()
@@ -129,11 +131,11 @@ def test_loaded_model():
         hog_feature = hog.compute(resized_image).flatten()
         model = joblib.load(model_file_path)
         prediction = model.predict_proba([hog_feature])
-    elif feature == 'Hu' and classification == 'SVM':
+    elif feature == 'HU' and classification == 'SVM':
         hu_feature = extract_hu_moments(color_image)
         model = joblib.load(model_file_path)
         prediction = model.predict_proba([hu_feature])
-    elif feature == 'Haar' and classification == 'SVM':
+    elif feature == 'HAAR' and classification == 'SVM':
         haar_feature = cv2.integral(resized_image).flatten()
         model = joblib.load(model_file_path)
         prediction = model.predict_proba([haar_feature])
@@ -143,12 +145,12 @@ def test_loaded_model():
         model = load_model(model_file_path)
         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
         prediction = model.predict([np.array([hog_feature]), dummy_3d_input])
-    elif feature == 'Hu' and classification == 'NN':
+    elif feature == 'HU' and classification == 'NN':
         hu_moments = extract_hu_moments(color_image)
         model = load_model(model_file_path)
         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
         prediction = model.predict([np.array([hu_moments]), dummy_3d_input])
-    elif feature == 'Haar' and classification == 'NN':
+    elif feature == 'HAAR' and classification == 'NN':
         haar_feature = cv2.integral(resized_image).flatten()
         model = load_model(model_file_path)
         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
@@ -369,7 +371,10 @@ def extract_hu_moments(image):
     Extract Hu moments from an image.
     """
     if len(image.shape) == 3 and image.shape[2] == 3:  # Check if the image is in color
-        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray_image1 = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        denoised_image = cv2.GaussianBlur(gray_image1, (5, 5), 0)
+        equalized_image = cv2.equalizeHist(denoised_image)
+        gray_image = cv2.resize(equalized_image, (64, 64))
     else:
         gray_image = image  # Image is already in grayscale
     moments = cv2.moments(gray_image)
@@ -434,7 +439,7 @@ def train_model():
         joblib.dump(svm_model, 'TrainData/hog_svm_model.pkl')
         print("Model saved to 'TrainData/hog_svm_model.pkl'")
 
-    elif feature == 'Hu' and classification == 'SVM':
+    elif feature == 'HU' and classification == 'SVM':
         # Load 2D dataset
         train_images_2d, train_labels = load_2d_dataset('TrainData/2D/')
 
@@ -454,7 +459,7 @@ def train_model():
         joblib.dump(svm_model, 'TrainData/hu_svm_model.pkl')
         print("Model saved to 'TrainData/hu_svm_model.pkl'")
 
-    elif feature == 'Haar' and classification == 'SVM':
+    elif feature == 'HAAR' and classification == 'SVM':
         train_images_2d, train_labels = load_2d_dataset('TrainData/2D/')
         label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
         int_train_labels = np.array([label_to_int[label] for label in train_labels])
@@ -517,7 +522,7 @@ def train_model():
         model.save('TrainData/hog_nn_model.h5')
         print("Model saved to 'TrainData/hog_nn_model.h5'")
 
-    elif feature == 'Hu' and classification == 'NN':
+    elif feature == 'HU' and classification == 'NN':
         # Load 2D dataset
         train_images_2d, train_labels = load_2d_dataset('TrainData/2D/')
         train_images_3d, _ = load_3d_dataset('TrainData/3D/')
@@ -564,7 +569,7 @@ def train_model():
         # Save the model
         model.save('TrainData/hu_nn_model.h5')
         print("Model saved to 'TrainData/hu_nn_model.h5'")
-    elif feature == 'Haar' and classification == 'NN':
+    elif feature == 'HAAR' and classification == 'NN':
         # Load 2D dataset
         train_images_2d, train_labels = load_2d_dataset('TrainData/2D/')
         train_images_3d, _ = load_3d_dataset('TrainData/3D/')
@@ -633,7 +638,9 @@ def test_model():
         return
 
     gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-    resized_image = cv2.resize(gray_image, (64, 64))
+    denoised_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
+    equalized_image = cv2.equalizeHist(denoised_image)
+    resized_image = cv2.resize(equalized_image, (64, 64))
 
     if classification == 'CNN':
         model_path = 'TrainData/cnn_cnn_model.keras'
@@ -654,7 +661,7 @@ def test_model():
 
         svm_model = joblib.load(model_path)
         prediction = svm_model.predict_proba([hog_feature])
-    elif feature == 'Hu' and classification == 'SVM':
+    elif feature == 'HU' and classification == 'SVM':
         model_path = 'TrainData/hu_svm_model.pkl'
         if not os.path.exists(model_path):
             print(f"Model file {model_path} not found")
@@ -662,7 +669,7 @@ def test_model():
         hu_feature = extract_hu_moments(color_image)
         svm_model = joblib.load(model_path)
         prediction = svm_model.predict_proba([hu_feature])
-    elif feature == 'Haar' and classification == 'SVM':
+    elif feature == 'HAAR' and classification == 'SVM':
         model_path = 'TrainData/haar_svm_model.pkl'
         if not os.path.exists(model_path):
             print(f"Model file {model_path} not found")
@@ -677,8 +684,10 @@ def test_model():
             return
 
         # Extract HOG features
-        gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-        resized_image = cv2.resize(gray_image, (64, 64))
+        gray_image1 = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+        denoised_image = cv2.GaussianBlur(gray_image1, (5, 5), 0)
+        equalized_image = cv2.equalizeHist(denoised_image)
+        resized_image = cv2.resize(equalized_image, (64, 64))
         hog = cv2.HOGDescriptor((64, 64), (16, 16), (8, 8), (8, 8), 9)
         hog_feature = hog.compute(resized_image).flatten()
 
@@ -687,7 +696,7 @@ def test_model():
         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
         prediction = model.predict([np.array([hog_feature]), dummy_3d_input])
 
-    elif feature == 'Hu' and classification == 'NN':
+    elif feature == 'HU' and classification == 'NN':
         model_path = 'TrainData/hu_nn_model.h5'
         if not os.path.exists(model_path):
             print(f"Model file {model_path} not found")
@@ -701,15 +710,17 @@ def test_model():
         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
         prediction = model.predict([np.array([hu_moments]), dummy_3d_input])
 
-    elif feature == 'Haar' and classification == 'NN':
+    elif feature == 'HAAR' and classification == 'NN':
         model_path = 'TrainData/haar_nn_model.keras'
         if not os.path.exists(model_path):
             print(f"Model file {model_path} not found")
             return
 
         # Extract Haar-like features
-        gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-        resized_image = cv2.resize(gray_image, (64, 64))
+        gray_image1 = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+        denoised_image = cv2.GaussianBlur(gray_image1, (5, 5), 0)
+        equalized_image = cv2.equalizeHist(denoised_image)
+        resized_image = cv2.resize(equalized_image, (64, 64))
         haar_feature = cv2.integral(resized_image).flatten()
 
         # Load the model
@@ -743,82 +754,6 @@ def test_model():
     uploaded_image_label.config(image=image)
     uploaded_image_label.image = image
     status_label.config(text="")
-
-# def test_loaded_model(model):
-#     print("Testing loaded model...")
-#     status_label.config(text="Đang dự đoán. Vui lòng đợi...")
-#     root.update_idletasks()
-#
-#     file_path = filedialog.askopenfilename(title="Select an image",
-#                                            filetypes=[("Image files", "*.jpg;*.jpeg;*.png")])
-#     if not file_path:
-#         print("No file selected")
-#         return
-#
-#     color_image = cv2.imread(file_path, cv2.IMREAD_COLOR)
-#     if color_image is None:
-#         print("Failed to load image")
-#         return
-#
-#     gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-#     resized_image = cv2.resize(gray_image, (64, 64))
-#
-#     feature = feature_var.get()
-#     classification = classification_var.get()
-#
-#     if classification == 'CNN':
-#         resized_image = resized_image.reshape(1, 64, 64, 1)
-#         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
-#         prediction = model.predict([resized_image, dummy_3d_input])
-#     elif feature == 'HOG' and classification == 'SVM':
-#         hog = cv2.HOGDescriptor((64, 64), (16, 16), (8, 8), (8, 8), 9)
-#         hog_feature = hog.compute(resized_image).flatten()
-#         prediction = model.predict_proba([hog_feature])
-#     elif feature == 'Hu' and classification == 'SVM':
-#         hu_feature = extract_hu_moments(color_image)
-#         prediction = model.predict_proba([hu_feature])
-#     elif feature == 'Haar' and classification == 'SVM':
-#         haar_feature = cv2.integral(resized_image).flatten()
-#         prediction = model.predict_proba([haar_feature])
-#     elif feature == 'HOG' and classification == 'NN':
-#         hog = cv2.HOGDescriptor((64, 64), (16, 16), (8, 8), (8, 8), 9)
-#         hog_feature = hog.compute(resized_image).flatten()
-#         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
-#         prediction = model.predict([np.array([hog_feature]), dummy_3d_input])
-#     elif feature == 'Hu' and classification == 'NN':
-#         hu_moments = extract_hu_moments(color_image)
-#         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
-#         prediction = model.predict([np.array([hu_moments]), dummy_3d_input])
-#     elif feature == 'Haar' and classification == 'NN':
-#         haar_feature = cv2.integral(resized_image).flatten()
-#         dummy_3d_input = np.zeros((1, 64, 64, 64, 1))
-#         prediction = model.predict([np.array([haar_feature]), dummy_3d_input])
-#     else:
-#         status_label.config(text="Chưa có thuật toán, chương trình sẽ cập nhật sau")
-#         return
-#
-#     predicted_label = np.argmax(prediction, axis=1)
-#     accuracy = np.max(prediction) * 100
-#     train_images, train_labels = load_2d_dataset('TrainData/2D/')
-#     label_to_int = {label: idx for idx, label in enumerate(np.unique(train_labels))}
-#     int_to_label = {idx: label for label, idx in label_to_int.items()}
-#     predicted_label_name = int_to_label[predicted_label[0]]
-#     print(f'Predicted label: {predicted_label_name}, Accuracy: {accuracy:.2f}%')
-#     label_result.config(text=f'Dự đoán: {predicted_label_name}')
-#
-#     # Resize the image to 100px width while maintaining aspect ratio
-#     height, width = color_image.shape[:2]
-#     new_width = 100
-#     new_height = int((new_width / width) * height)
-#     resized_color_image = cv2.resize(color_image, (new_width, new_height))
-#
-#     # Display the image in the GUI
-#     image = cv2.cvtColor(resized_color_image, cv2.COLOR_BGR2RGB)
-#     image = Image.fromarray(image)
-#     image = ImageTk.PhotoImage(image)
-#     uploaded_image_label.config(image=image)
-#     uploaded_image_label.image = image
-#     status_label.config(text="")
 
 # Function to load a 3D image from the TrainData/3D/ directory
 def load_3d_image(file_path, size=(64, 64, 64)):
@@ -960,7 +895,7 @@ label1 = tk.Label(frame, text="Chọn trích xuất đặc trưng:", font=font)
 label1.pack(side=tk.LEFT, padx=5, pady=5)
 feature_var = tk.StringVar()
 feature_dropdown = ttk.Combobox(frame, textvariable=feature_var, font=font)
-feature_dropdown['values'] = ('HOG', 'Hu', 'Haar')
+feature_dropdown['values'] = ('HOG', 'HU', 'HAAR')
 feature_dropdown.current(0)
 feature_dropdown.pack(side=tk.LEFT, padx=5, pady=5)
 
